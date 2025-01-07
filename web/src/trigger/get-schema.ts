@@ -32,7 +32,8 @@ export const getSchema = task({
             });
             console.log(item);
             result.data.push(item);
-            getDocument.trigger({ title: item.title, path: item.path! });
+            if (item.title?.endsWith('.pdf'))
+                getDocument.trigger({ title: item.title, path: item.path! });
             return;
         });
 
