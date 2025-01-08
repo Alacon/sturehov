@@ -35,10 +35,10 @@
 		"@trigger.dev/sdk": "^3.3.7",
 		"@trigger.dev/sveltekit": "^3.3.7",
 		"cheerio": "^1.0.0",
+		"crawler-request": "^1.2.2",
 		"node-fetch": "^3.3.2",
 		"openai": "^4.77.3",
-		"pdf-lib": "^1.17.1",
-		"pdfjs-dist": "^4.10.38"
+		"unpdf": "^0.12.1"
 	},
 	"packageManager": "yarn@1.22.22+sha1.ac34549e6aa8e7ead463a7407e1c7390f61a6610"
 }
