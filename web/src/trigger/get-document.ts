@@ -18,7 +18,7 @@ export const getDocument = task({
     },
     maxDuration: 60,
     machine: { preset: 'micro' },
-    run: async ({ title, path }: { title: string, path: string }, { ctx }) => {
+    run: async ({ title, path }: { title: string, path: string }) => {
 
         const url = `https://www.svenskalag.se/iksturehov${path}`;
 
@@ -38,7 +38,7 @@ export const getDocument = task({
             console.error('Failed to fetch item', error);
         }
 
-        if ((data && data.modified < item.modified) || !data) {
+        if ((data && item.modified && data.modified < item.modified) || !data || !item.modified) {
             console.log('Upserting item', item);
             await supabaseAdmin.from('schedules')
                 .upsert(item)
