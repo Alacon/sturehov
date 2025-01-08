@@ -17,7 +17,9 @@ jobs:
           node-version: "20.x"
 
       - name: Install dependencies
-        run: npm install
+        shell: bash
+        working-directory: "web/src/trigger/**"
+        run: yarn install
 
       - name: 🚀 Deploy Trigger.dev
         env:
