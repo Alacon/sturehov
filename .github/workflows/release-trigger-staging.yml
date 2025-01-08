@@ -21,6 +21,7 @@ jobs:
         run: yarn install
 
       - name: 🚀 Deploy Trigger.dev
+        working-directory: "web"
         env:
           TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
         run: |
