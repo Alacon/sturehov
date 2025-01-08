@@ -18,7 +18,7 @@ jobs:
 
       - name: Install dependencies
         shell: bash
-        working-directory: "web/src/trigger/**"
+        working-directory: "web/**"
         run: yarn install
 
       - name: 🚀 Deploy Trigger.dev
