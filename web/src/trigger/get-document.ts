@@ -1,6 +1,7 @@
 import { task } from "@trigger.dev/sdk/v3";
 import { supabaseAdmin } from "./lib/supabase";
 import { getPdfData } from "./lib/pdf";
+import { extractDaysTask } from "./extract-days";
 
 type Schedule = {
     id: string,
@@ -39,10 +40,10 @@ export const getDocument = task({
         }
 
         if ((data && item.modified && data.modified < item.modified) || !data || !item.modified) {
-            console.log('Upserting item', item);
             await supabaseAdmin.from('schedules')
                 .upsert(item)
                 .throwOnError();
+            extractDaysTask.trigger({ id: item.id })
         }
         return item;
     },
