@@ -1,3 +1,4 @@
+import type { Days } from '$lib/models/days';
 import { supabase } from '$lib/supabaseClient';
 import type { PageServerLoad } from './$types';
 

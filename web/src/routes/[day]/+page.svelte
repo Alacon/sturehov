@@ -9,15 +9,15 @@
 <div>
 	Today is {data.day}
 </div>
-{#if data?.kg1}
-	<Day field={data.kg1} hour={data.hour} title="KG1" />
+{#if data?.hours}
+	<Day hours={data.hours} hour={data.hour} title="KG1" />
 {/if}
-{#if data?.kg2}
+<!-- {#if data?.kg2}
 	<Day field={data.kg2} hour={data.hour} title="KG2" />
 {/if}
 {#if data?.kg_extra}
 	<Day field={data.kg_extra} hour={data.hour} title="KG Extra" />
-{/if}
+{/if} -->
 <div class="flex flex-row items-center justify-between sticky bottom-0 p-4 bg-white">
 	<Button href={data.previous} variant="link">
 		<svg
