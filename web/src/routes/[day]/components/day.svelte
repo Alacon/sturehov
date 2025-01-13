@@ -24,7 +24,4 @@
 			{/each}
 		</ul>
 	</Card.Content>
-	<Card.Footer>
-		<p>Card Footer</p>
-	</Card.Footer>
 </Card.Root>
