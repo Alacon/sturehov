@@ -48,14 +48,14 @@ export const extractDaysTask = task({
       .from('days')
       .upsert(days, { onConflict: 'id' });
 
-    if (dayError) console.log('dayError',dayError)
+    if (dayError) console.log('dayError', dayError)
 
     return {
       id,
       text: scheduleResponse.schedules
     }
   },
-  handleError(error) {
+  handleError(payload, error, params) {
     if (error instanceof APICallError) {
       if (!error.statusCode) {
         return {
@@ -93,7 +93,7 @@ const ScheduleSchema = z.object({
 });
 
 const extract = async (text: string): Promise<ScheduleResponse> => {
-  const {object} = await generateObject({
+  const response = await generateObject({
     model: openai('gpt-4o-mini'),
     schema: ScheduleSchema,
 
@@ -103,37 +103,39 @@ const extract = async (text: string): Promise<ScheduleResponse> => {
         content: `
           Your task is to extract a JSON object from the input text that strictly matches the provided schema. 
         - Each element in the array should represent a day.
-        - Include keys "KG1", "KG2", "KG xtra (16x35m)", and "Datum".
+        - Include keys "KG1", "KG2", "KG xtra (16x35m)", and "date".
         - Dates must be in ISO 8601 format (YYYY-MM-DD).
         - If a time slot is empty, represent it as null.
         
         Example Input:
-        Måndag KG1 KG2 KG xtra (16x35m) 20-jan 17-18 P12/P13 ÖA P15 18-19 F12 Damjun 19-20 Herr PU16
+        Måndag KG1 KG2 KG xtra (16x35m) 13-jan 17-18 P12/P13 ÖA P15 18-19 F12 Damjun 19-20 Herr PU16
+        Tisdag KG1 KG2 KG xtra (16x35m) 14-jan 17-18 P10 P11 F13/14 18-19 PU19 F11 F13/14 19-20 Dam F09/10
+        Onsdag KG1 KG2 KG xtra (16x35m) 15-jan 16-17 F15 17-18 DamJun PU16 P14 18-19 P12 F11/F12 19-20 Herr Herr
+        Torsdag KG1 KG2 KG xtra (16x35m) 16-jan 17-18 F09/10 ÖA P15 18-19 P10 P11 19-20 Dam PU19
+        Fredag KG1 KG2 KG xtra (16x35m) 17-jan 15-16 Flick/Dam 16-17 P10 P11 17-18 P13 P14 18-19 PU19 PU19
+        Lördag KG1 KG2 KG xtra (16x35m) 18-jan 10.-11 Dam Matchtid 11.-12 Dam Matchtid 12.-13 F12 13.-14 F13/14 F15 14.-15
+        Söndag KG1 KG2 KG xtra (16x35m) 19-jan 9.-10 P16 10.-11 Östra almby 11.-12 F14/F16 P17 12.-13 Matchtid 13.-14 Matchtid 14.-15 P14 Vlad Målvaktsskola 15.-16 P13 16.-17 P15 P12 17.-18 P18r P18b
 
         Example Output:
     {
       "schedules": [
         {
-          "KG1": {
-            "16-17": null,
-            "17-18": "P12/P13",
-            "18-19": "F12",
-            "19-20": "Herr"
-          },
-          "KG2": {
-            "16-17": null,
-            "17-18": "ÖA",
-            "18-19": "Damjun",
-            "19-20": "PU16"
-          },
-          "KG xtra (16x35m)": {
-            "16-17": null,
-            "17-18": "P15",
-            "18-19": null,
-            "19-20": null
-          },
-          "date": "2025-01-20"
-        }
+          "KG1": {"17-18": "P12/P13", "18-19": "F12", "19-20": "Herr"},
+          "KG2": {"17-18": "ÖA", "18-19": "Damjun", "19-20": "PU16"},
+          "KG xtra": {"17-18": "P15", "18-19": null, "19-20": null},
+          "date": "2025-01-13"
+        },
+        {...},
+        {...},
+        {...},
+        {
+          "KG1": {"15-16": "Flick/Dam", "16-17": "P10", "17-18": "P13", "18-19": "PU19"},
+          "KG2": {"15-16": null, "16-17": "P11", "17-18": "P14", "18-19": "PU19"},
+          "KG xtra": {"15-16": null, "16-17": null, "17-18": null, "18-19": null},
+          "date": "2025-01-17"
+        },
+        {...},
+        {...}
       ]
     }
     The output must strictly match this format.
@@ -146,6 +148,7 @@ const extract = async (text: string): Promise<ScheduleResponse> => {
     ]
   });
 
+  const { object } = response;
   return object;
 };
 // Example usage:
