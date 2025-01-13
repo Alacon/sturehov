@@ -3,6 +3,6 @@
 	let { children } = $props();
 </script>
 
-<div class="container">
+<div class="container space-y-4 py-8">
 	{@render children()}
 </div>
