@@ -2,9 +2,10 @@
 import { task } from '@trigger.dev/sdk/v3';
 import { createOpenAI } from '@ai-sdk/openai';
 import { supabaseAdmin } from './lib/supabase';
-import { z } from 'zod';
 import { APICallError, generateObject, TypeValidationError } from 'ai';
 import { generateUUID } from './lib/uuid';
+import { ScheduleSchema, type Schedule } from './models/schedule';
+import type { Days } from './models/days';
 
 const openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY ?? ''
@@ -18,6 +19,9 @@ export const extractDaysTask = task({
   maxDuration: 60,
   machine: { preset: 'micro' },
   run: async ({ id }: { id: string }) => {
+
+    console.log(ScheduleSchema.parse(sData));
+
 
     const { data, error } = await supabaseAdmin
       .from('schedules')
@@ -33,14 +37,12 @@ export const extractDaysTask = task({
     const scheduleResponse = await extract(data!.text)
 
     const days = scheduleResponse.schedules.map(schedule => {
-      const { KG1, KG2, date } = schedule;
+      const { hours, date } = schedule;
       const uuid = generateUUID(schedule.date)
       return {
         id: uuid,
         date,
-        kg1: KG1,
-        kg2: KG2,
-        kg_extra: schedule['KG xtra (16x35m)']
+        hours
       } as Days
     });
 
@@ -52,10 +54,12 @@ export const extractDaysTask = task({
 
     return {
       id,
-      text: scheduleResponse.schedules
+      text: days
     }
   },
-  handleError(payload, error, params) {
+  handleError(payload, error) {
+    console.log('Error', error);
+
     if (error instanceof APICallError) {
       if (!error.statusCode) {
         return {
@@ -79,20 +83,7 @@ export const extractDaysTask = task({
   },
 });
 
-const TimeSlotSchema = z.record(z.union([z.string(), z.null()]));
-
-const DayScheduleSchema = z.object({
-  KG1: TimeSlotSchema,
-  KG2: TimeSlotSchema,
-  "KG xtra (16x35m)": TimeSlotSchema,
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid ISO 8601 date format")
-});
-
-const ScheduleSchema = z.object({
-  schedules: z.array(DayScheduleSchema),
-});
-
-const extract = async (text: string): Promise<ScheduleResponse> => {
+const extract = async (text: string): Promise<Schedule> => {
   const response = await generateObject({
     model: openai('gpt-4o-mini'),
     schema: ScheduleSchema,
@@ -101,12 +92,15 @@ const extract = async (text: string): Promise<ScheduleResponse> => {
       {
         role: 'system',
         content: `
-          Your task is to extract a JSON object from the input text that strictly matches the provided schema. 
+         Your task is to extract a JSON object from the input text that strictly matches the provided schema. 
         - Each element in the array should represent a day.
-        - Include keys "KG1", "KG2", "KG xtra (16x35m)", and "date".
-        - Dates must be in ISO 8601 format (YYYY-MM-DD).
-        - If a time slot is empty, represent it as null.
-        
+        - Each day must include:
+          - "hours": an array of objects where:
+            - The keys are time slots in the format "HH-MM".
+            - The values are arrays of three items representing the schedule for "KG1", "KG2", and "KG xtra (16x35m)" respectively. If no schedule exists, represent it as null.
+          - "date": a string in ISO 8601 format (YYYY-MM-DD).
+        - Input dates must be converted to ISO 8601 format.
+
         Example Input:
         Måndag KG1 KG2 KG xtra (16x35m) 13-jan 17-18 P12/P13 ÖA P15 18-19 F12 Damjun 19-20 Herr PU16
         Tisdag KG1 KG2 KG xtra (16x35m) 14-jan 17-18 P10 P11 F13/14 18-19 PU19 F11 F13/14 19-20 Dam F09/10
@@ -117,28 +111,39 @@ const extract = async (text: string): Promise<ScheduleResponse> => {
         Söndag KG1 KG2 KG xtra (16x35m) 19-jan 9.-10 P16 10.-11 Östra almby 11.-12 F14/F16 P17 12.-13 Matchtid 13.-14 Matchtid 14.-15 P14 Vlad Målvaktsskola 15.-16 P13 16.-17 P15 P12 17.-18 P18r P18b
 
         Example Output:
-    {
+        {
       "schedules": [
-        {
-          "KG1": {"17-18": "P12/P13", "18-19": "F12", "19-20": "Herr"},
-          "KG2": {"17-18": "ÖA", "18-19": "Damjun", "19-20": "PU16"},
-          "KG xtra": {"17-18": "P15", "18-19": null, "19-20": null},
-          "date": "2025-01-13"
-        },
-        {...},
-        {...},
-        {...},
-        {
-          "KG1": {"15-16": "Flick/Dam", "16-17": "P10", "17-18": "P13", "18-19": "PU19"},
-          "KG2": {"15-16": null, "16-17": "P11", "17-18": "P14", "18-19": "PU19"},
-          "KG xtra": {"15-16": null, "16-17": null, "17-18": null, "18-19": null},
-          "date": "2025-01-17"
-        },
-        {...},
-        {...}
-      ]
-    }
-    The output must strictly match this format.
+          {
+            "hours": [
+              {
+                "17-18": ["P12/P13", "ÖA", "P15"]
+              },
+              {
+                "18-19": ["F12", "Damjun", null]
+              },
+              {
+                "19-20": ["Herr", "PU16", null]
+              }
+            ],
+            "date": "2025-01-13"
+          },
+          {
+            "hours": [
+              {
+                "17-18": ["P10", "P11", "F13/14"]
+              },
+              {
+                "18-19": ["PU19", "F11", "F13/14"]
+              },
+              {
+                "19-20": ["Dam", "F09/10", null]
+              }
+            ],
+            "date": "2025-01-14"
+          }
+        ]
+      }
+        - The output must strictly match this format.        
         `
       },
       {
@@ -149,7 +154,10 @@ const extract = async (text: string): Promise<ScheduleResponse> => {
   });
 
   const { object } = response;
+  console.log('object', object);
+
   return object;
 };
 // Example usage:
 // ScheduleSchema.parse(yourData);
+const sData = { "schedules": [{ "hours": [{ "17-18": ["P12/P13", "ÖA", "P15"] }, { "18-19": ["SMÅ IF", "SMÅ IF", "F12"] }, { "19-20": ["Herr", "PU16/DamJun", null] }], "date": "2025-02-17" }, { "hours": [{ "17-18": ["P10", "P11", "F13/14"] }, { "18-19": ["PU19", "F11", "F13/14"] }, { "19-20": ["Dam", "F09/10", null] }], "date": "2025-02-18" }, { "hours": [{ "16-17": [null] }, { "17-18": ["DamJun", "PU16", "P14"] }, { "18-19": ["P12", "F11/F12", null] }, { "19-20": ["Herr", "Herr", null] }], "date": "2025-02-19" }, { "hours": [{ "16-17": ["P15", null, null] }, { "17-18": ["F09/10", "ÖA", "P15"] }, { "18-19": ["P10", "P11", "F15"] }, { "19-20": ["Dam", "PU19", null] }], "date": "2025-02-20" }, { "hours": [{ "15-16": ["Flick/Dam", null, null] }, { "16-17": ["P10", "P11", null] }, { "17-18": ["P13", "P14", null] }, { "18-19": ["PU19", "PU19", null] }], "date": "2025-02-21" }, { "hours": [{ "10-11": ["Dam", "Matchtid", null] }, { "11-12": ["Dam", "Matchtid", null] }, { "12-13": ["F12", null, null] }, { "13-14": ["F13/14", "F15", null] }, { "14-15": [null] }], "date": "2025-02-22" }, { "hours": [{ "9-10": ["P16", null, null] }, { "10-11": ["Östra almby", null, null] }, { "11-12": ["F14/F16", "P17", null] }, { "12-13": ["Matchtid", null, null] }, { "13-14": ["Matchtid", null, null] }, { "14-15": ["P14", "Vlad", "Målvaktsskola"] }, { "15-16": ["F13/14", "P13", null] }, { "16-17": ["P15", "P12", null] }, { "17-18": ["P18r", "P18b", null] }], "date": "2025-02-23" }] }

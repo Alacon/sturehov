@@ -1,15 +1,17 @@
-// Type for a time slot mapping (e.g., "16-17": null or a string)
-type TimeSlot = Record<string, string | null>;
+import { z } from "zod";
 
-// Type for a single day's schedule
-interface DaySchedule {
-    KG1: TimeSlot;
-    KG2: TimeSlot;
-    "KG xtra (16x35m)": TimeSlot;
-    date: string; // ISO 8601 date format (e.g., "2025-01-20")
-}
+export const ScheduleSchema = z.object({
+    schedules: z.array(
+        z.object({
+            date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid ISO 8601 date format'),
+            hours: z.array(
+                z.record(
+                    z.string().regex(/^\d{1,2}-\d{1,2}$/, 'Invalid time slot format (HH-HH)'),
+                    z.array(z.string().nullable()).default([null, null, null]) // Exactly 3 entries for KG1, KG2, KG xtra
+                )
+            ),
+        })
+    ),
+});
 
-// Type for the full response object
-interface ScheduleResponse {
-    schedules: DaySchedule[];
-}
+export type Schedule = z.infer<typeof ScheduleSchema>;
