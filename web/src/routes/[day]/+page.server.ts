@@ -10,8 +10,6 @@ export const load = (async ({ params }) => {
 
     const { data } = await supabase.from('days').select().eq('date', params.day).limit(1).single<Days>();
 
-
-
     // Parse the provided day into a Date object
     const currentDay = new Date(params.day);
 
