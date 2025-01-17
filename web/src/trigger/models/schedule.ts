@@ -12,6 +12,7 @@ export const ScheduleSchema = z.object({
             ),
         })
     ),
+    explanation: z.string().min(1),
 });
 
 export type Schedule = z.infer<typeof ScheduleSchema>;
