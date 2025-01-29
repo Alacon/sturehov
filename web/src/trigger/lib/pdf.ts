@@ -21,6 +21,8 @@ export const getPdfData = async (pdfUrl: string): Promise<{ text: string, meta: 
         }
     };
 }
+
+
 export const getPdfImage = async (pdfUrl: string): Promise<string | null> => {
     const apiEndpoint = `${process.env.CLOUDMERSIVE_URL}/convert/pdf/to/png/direct`; // Replace with your API endpoint
     const apiToken = process.env.CLOUDMERSIVE_KEY; // Replace with your API authentication token if needed
