@@ -42,10 +42,10 @@ export const getDocument = task({
 
         console.log({ title, url, modified: meta?.modified, da: data?.modified });
 
-        const currentModified = new Date(data.modified).getTime();
-        const newModified = new Date(meta.modified).getTime();
+        const currentModified = data?.modified ? new Date(data.modified).getTime() : 0;
+        const newModified = meta.modified ? new Date(meta.modified).getTime() : 0;
         console.log({ currentModified, newModified });
-        
+
         if ((data && meta.modified && currentModified < newModified)) {
             await sendMessage({
                 title: `Uppdaterat: ${title}`, url, modified: (meta?.modified ?? new Date()).toISOString().slice(0, 10)
