@@ -2,6 +2,7 @@ import { task } from "@trigger.dev/sdk/v3";
 import { supabaseAdmin } from "./lib/supabase";
 import { getPdfData, getPdfImage } from "./lib/pdf";
 import { extractDaysTask } from "./extract-days";
+import sendMessage from "./lib/slack";
 
 type Schedule = {
     id: string,
@@ -25,7 +26,7 @@ export const getDocument = task({
         const url = `https://www.svenskalag.se/iksturehov${path}`;
         const id = path.replace('/dokument/', '');
 
-        const { text,meta } = await getPdfData(url);
+        const { text, meta } = await getPdfData(url);
         const item: Schedule = {
             id,
             title,
@@ -39,19 +40,46 @@ export const getDocument = task({
             console.error('Failed to fetch item', error);
         }
 
-        if ((data && meta.modified && data.modified < meta.modified) || !data || !meta.modified) {
-            const s = await getPdfImage(url);
-            if (!s) {
-                throw new Error('Failed to fetch image');
-            }
-            item.image = s;
+        console.log({ title, url, modified: meta?.modified, da: data?.modified });
 
+        const currentModified = new Date(data.modified).getTime();
+        const newModified = new Date(meta.modified).getTime();
+        console.log({ currentModified, newModified });
+        
+        if ((data && meta.modified && currentModified < newModified)) {
+            await sendMessage({
+                title: `Uppdaterat: ${title}`, url, modified: (meta?.modified ?? new Date()).toISOString().slice(0, 10)
+            })
+            await supabaseAdmin.from('schedules')
+                .upsert(item)
+                .throwOnError();
+            return item;
+        }
+
+        if (!data) {
+            await sendMessage({
+                title: `Nytt: ${title}`, url, modified: (meta?.modified ?? new Date()).toISOString().slice(0, 10)
+            })
+            await supabaseAdmin.from('schedules')
+                .upsert(item)
+                .throwOnError();
+            return item;
+        }
+        if ((data && meta.modified && data.modified < meta.modified) || !data || !meta.modified) {
+
+            // const s = await getPdfImage(url);
+            // if (!s) {
+            //     throw new Error('Failed to fetch image');
+            // }
+            // item.image = s;
 
             await supabaseAdmin.from('schedules')
                 .upsert(item)
                 .throwOnError();
+            return item;
             return extractDaysTask.trigger({ id: item.id })
-        }else{
+        } else {
+            return item;
             console.log('Already up to date');
             return extractDaysTask.trigger({ id: item.id })
         }
