@@ -1,8 +1,9 @@
 
 import { task } from '@trigger.dev/sdk/v3';
 import { createOpenAI } from '@ai-sdk/openai';
+import { google } from '@ai-sdk/google';
 import { supabaseAdmin } from './lib/supabase';
-import { APICallError, generateObject, TypeValidationError, type ImagePart, type TextPart } from 'ai';
+import { APICallError, generateObject, TypeValidationError, type FilePart } from 'ai';
 import { generateUUID } from './lib/uuid';
 import { ScheduleSchema, type Schedule } from './models/schedule';
 import type { Days } from './models/days';
@@ -11,8 +12,14 @@ const openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY ?? ''
 });
 
+const gemini = google('gemini-2.0-flash-001');
+
+
 export const extractDaysTask = task({
   id: "extract-days",
+  retry: {
+    maxAttempts: 1,
+  },
   queue: {
     concurrencyLimit: 5,
   },
@@ -22,26 +29,44 @@ export const extractDaysTask = task({
 
     const { data, error } = await supabaseAdmin
       .from('schedules')
-      .select('id,text, image')
+      .select('id,text, slug, modified')
       .eq('id', id)
       .limit(1)
       .maybeSingle();
 
-    if (error || data == null) {
+    if (error || !data) {
       console.error('Failed to fetch item', error);
+      return;
     }
 
-    const scheduleResponse = await extract(data?.image, data!.text)
+    const arrayBuffer = await supabaseAdmin.storage.from('schedules')
+      .download(`${data.slug}/${data.modified.slice(0, 10)}.pdf`)
+      .then(async res => await res.data?.arrayBuffer())
 
+    if (!arrayBuffer) {
+      console.error('Failed to fetch pdf');
+      return;
+    }
+    console.log('arrayBuffer', arrayBuffer);
+    
+
+    const scheduleResponse = await extract(arrayBuffer)
 
     const days = scheduleResponse.schedules.map(schedule => {
       const { hours, date } = schedule;
-      const uuid = generateUUID(schedule.date)
+      const uuid = generateUUID(schedule.date);
+      
+      // Transform the hours format to match the Days interface
+      const transformedHours = hours.map(hour => {
+        const { time_slot, entries } = hour;
+        return { [time_slot]: entries };
+      });
+      
       return {
         id: uuid,
         date,
-        hours
-      } as Days
+        hours: transformedHours
+      };
     });
 
     const { error: dayError } = await supabaseAdmin
@@ -81,87 +106,89 @@ export const extractDaysTask = task({
   },
 });
 
-const extract = async (image: string, text: string): Promise<Schedule> => {
+const extract = async (buffer: ArrayBuffer): Promise<Schedule> => {
+  console.log('extract');
+
+  const prompt = `Your task is to extract a JSON object from the provided PDF, which contains a schedule table, and format it strictly according to the provided schema. The table includes days of the week, dates, time slots, and activities for "KG1", "KG2", and "KG xtra (16x35m)". Follow these instructions:
+
+- Each element in the "schedules" array represents one day and must include "date" and "hours".
+- For each day, include:
+  - "date": Convert the input date (e.g., "24-feb") to ISO 8601 format (YYYY-MM-DD). Use the current year, 2025, since no year is provided in the PDF.
+  - "hours": An array of objects (at least one object) where each object has:
+    - "time_slot": A string representing the time slot. Normalize the format as follows:
+      - If the input is "HH-MM" (e.g., "17-18"), use it as is.
+      - If the input is "HH:MM-HH:MM" (e.g., "15:30-16:30"), use it as is.
+      - If the input mixes formats (e.g., "10:30-13" or "15-17.15"), convert to "HH:MM-HH:MM" by assuming missing minutes are "00" and replacing dots with colons (e.g., "10:30-13" becomes "10:30-13:00", "15-17.15" becomes "15:00-17:15").
+    - "entries": An array of exactly 3 nullable strings representing the schedule for "KG1", "KG2", and "KG xtra (16x35m)" respectively. If no activity is listed, use null.
+- Map the table columns as follows:
+  - First column: Day of the week and date (e.g., "Måndag 24-feb").
+  - Subsequent columns: Time slots and activities for KG1, KG2, and KG xtra.
+- Handle overlapping or missing data by using null where no activity is specified.
+- The output must strictly adhere to the provided schema.
+
+Example Input (table snippet):
+| Måndag 24-feb | KG1    | KG2    | KG xtra (16x35m) |
+|---------------|--------|--------|------------------|
+| 15:30-16:30   | P12/P13| ÖA     | P15              |
+| 15-17.15      | ÖreBois| null   | null             |
+| 17-18         | P12/P13| ÖA     | P15              |
+| 18-19         | SMA    | DamU   | F12              |
+| 19-20         | Herr   | PU16   | null             |
+
+Example Output:
+{
+  "schedules": [
+    {
+      "date": "2025-02-24",
+      "hours": [
+        {
+          "time_slot": "15:30-16:30",
+          "entries": ["P12/P13", "ÖA", "P15"]
+        },
+        {
+          "time_slot": "15:00-17:15",
+          "entries": ["ÖreBois", null, null]
+        },
+        {
+          "time_slot": "17-18",
+          "entries": ["P12/P13", "ÖA", "P15"]
+        },
+        {
+          "time_slot": "18-19",
+          "entries": ["SMA", "DamU", "F12"]
+        },
+        {
+          "time_slot": "19-20",
+          "entries": ["Herr", "PU16", null]
+        }
+      ]
+    }
+  ],
+  "explanation": "The schedule was extracted from the PDF table. Dates were converted to ISO 8601 format using 2025 as the year. Time slots were normalized to 'HH-MM' or 'HH:MM-HH:MM' format by converting mixed formats like '15-17.15' to '15:00-17:15'. Activities were mapped to the corresponding KG1, KG2, and KG xtra columns."
+}
+
+- Process the entire table in the PDF and generate the complete schedule.
+- If a cell is empty or unclear, use null for that entry.
+`;
+  
   const response = await generateObject({
-    model: openai('gpt-4o-mini'),
+    model: gemini,
     schema: ScheduleSchema,
     messages: [
       {
         role: 'system',
-        content: `
-         Your task is to extract a JSON object from the input text that strictly matches the provided schema. 
-        - Each element in the array should represent a day.
-        - Each day must include:
-          - "hours": an array of objects where:
-            - The keys are time slots in the format "HH-MM".
-            - The values are arrays of three items representing the schedule for "KG1", "KG2", and "KG xtra (16x35m)" respectively. If no schedule exists, represent it as null.
-          - "date": a string in ISO 8601 format (YYYY-MM-DD).
-        - Input dates must be converted to ISO 8601 format.
-
-
-      Example input for date:
-      10-feb
-      13-mar
-
-      Example output for date:
-      2025-02-10
-      2025-03-13
-
-        Example Input:
-        Måndag KG1 KG2 KG xtra (16x35m) 29-jan 17-18 P12/P13 ÖA P15 18-19 F12 Damjun 19-20 Herr PU16
-        Tisdag KG1 KG2 KG xtra (16x35m) 14-jan 17-18 P10 P11 F13/14 18-19 PU19 F11 F13/14 19-20 Dam F09/10
-        Onsdag KG1 KG2 KG xtra (16x35m) 15-jan 16-17 F15 17-18 DamJun PU16 P14 18-19 P12 F11/F12 19-20 Herr Herr
-        Torsdag KG1 KG2 KG xtra (16x35m) 16-jan 17-18 F09/10 ÖA P15 18-19 P10 P11 19-20 Dam PU19
-        Fredag KG1 KG2 KG xtra (16x35m) 17-jan 15-16 Flick/Dam 16-17 P10 P11 17-18 P13 P14 18-19 PU19 PU19
-        Lördag KG1 KG2 KG xtra (16x35m) 18-jan 10.-11 Dam Matchtid 11.-12 Dam Matchtid 12.-13 F12 13.-14 F13/14 F15 14.-15
-        Söndag KG1 KG2 KG xtra (16x35m) 19-jan 9.-10 P16 10.-11 Östra almby 11.-12 F14/F16 P17 12.-13 Matchtid 13.-14 Matchtid 14.-15 P14 Vlad Målvaktsskola 15.-16 P13 16.-17 P15 P12 17.-18 P18r P18b
-
-        Example Output:
-        {
-      "schedules": [
-          {
-            "hours": [
-              {
-                "17-18": ["P12/P13", "ÖA", "P15"]
-              },
-              {
-                "18-19": ["F12", "Damjun", null]
-              },
-              {
-                "19-20": ["Herr", "PU16", null]
-              }
-            ],
-            "date": "2025-01-13"
-          },
-          {
-            "hours": [
-              {
-                "17-18": ["P10", "P11", "F13/14"]
-              },
-              {
-                "18-19": ["PU19", "F11", "F13/14"]
-              },
-              {
-                "19-20": ["Dam", "F09/10", null]
-              }
-            ],
-            "date": "2025-01-14"
-          }
-        ],
-        "explanation": "Add explanation here on how you found all"
-      }
-        - There is nothing in the image that indicates the year. Use the current year.
-        - The month comes from the image. Either jan, feb, mar, apr, maj, jun, jul, aug, sep, okt, nov, dec.
-        - The output must strictly match this format. Use the provided schema to validate your output.        
-        `
+        content: prompt
       },
       {
         role: 'user',
-        content: [{ type: 'text', text }, { type: 'image', image }] as Array<TextPart | ImagePart>
+        content: [{
+          type: 'file',
+          data: buffer,
+          mimeType: 'application/pdf'
+        }] as Array<FilePart>
       }
     ]
   });
-
   const { object } = response;
 
   return object;
