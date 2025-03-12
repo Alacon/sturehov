@@ -25,18 +25,19 @@ export const getSchema = task({
         } = { success: false, data: [] };
 
         const items = $('.folder-52570 a').map((i, el) => {
-            const item = { title: '', path: $(el).attr('href')?.trim() ?? '' };
+            const item = { title: '', path: $(el).attr('href')?.trim() ?? '', slug: '' };
 
             $(el).children('label').each((i, child) => {
                 item.title = $(child).text().replace(/\s+0,\d{2} MB\s*$/s, "").trim();
             });
+            item.slug = item.title.replace(/\s+/g, '_').replace('.pdf', '').toLowerCase();
             result.data.push(item);
             if (item.title?.endsWith('.pdf'))
                 return item;
         }).toArray();
 
         const filteredItems = items.filter(item => item.title.endsWith('.pdf'));
-        const mappedItems = filteredItems.map(item => ({ payload: { title: item.title, path: item.path! } }));
+        const mappedItems = filteredItems.map(item => ({ payload: { title: item.title, path: item.path! }, tags: ['schedule', item.slug] }));
 
         return getDocument.batchTrigger(mappedItems);
     },
